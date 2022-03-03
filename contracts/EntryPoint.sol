@@ -177,7 +177,8 @@ contract EntryPoint is StakeManager {
     }
 
     // create the sender's contract if needed.
-    function _createSenderIfNeeded(UserOperation calldata op) internal {
+    function _createSenderIfNeeded(uint opIndex, UserOperation calldata op) internal {
+        address sender = op.getSender();
         if (op.initCode.length != 0) {
             // note that we're still under the gas limit of validate, so probably
             // this create2 creates a proxy account.
@@ -185,7 +186,14 @@ contract EntryPoint is StakeManager {
             //   it can only be executed from the entryPoint, and called with its initialization code (callData)
             address sender1 = ICreate2Deployer(create2factory).deploy(op.initCode, bytes32(op.nonce));
             require(sender1 != address(0), "create2 failed");
-            require(sender1 == op.getSender(), "sender doesn't match create2 address");
+            require(sender1 == sender, "sender doesn't match create2 address");
+        }
+        uint size;
+        assembly {
+            size := extcodesize(sender)
+        }
+        if (size == 0) {
+            revert FailedOp(opIndex, address(0), "no contract at sender address");
         }
     }
 
@@ -210,7 +218,7 @@ contract EntryPoint is StakeManager {
     function _validateWalletPrepayment(uint opIndex, UserOperation calldata op, bytes32 requestId, uint requiredPrefund, PaymentMode paymentMode) internal returns (uint gasUsedByValidateUserOp, uint prefund) {
     unchecked {
         uint preGas = gasleft();
-        _createSenderIfNeeded(op);
+        _createSenderIfNeeded(opIndex, op);
         uint missingWalletFunds = 0;
         address sender = op.getSender();
         if (paymentMode != PaymentMode.paymasterStake) {
